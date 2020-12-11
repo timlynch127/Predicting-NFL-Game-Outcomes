@@ -1,0 +1,310 @@
+---
+title: "STOR538 P2 Cleaning Data R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(readr)
+library(tidyverse)
+Game_Results <- read_csv("/Users/timlynch/Desktop/STOR538/Playoff 2 Respository/Source-Data/Game.Results.csv")
+nfl_teams <- read_csv("/Users/timlynch/Desktop/STOR538/Playoff 2 Respository/Source-Data/nfl_teams.csv")
+```
+
+```{r}
+Game_Results <- Game_Results %>%
+  select(-X1) %>% 
+  rename(Vegas_OU_Line = over_under_line)
+
+for (i in 1:dim(Game_Results)[1]) {
+  if (Game_Results$team_home[i] == "St. Louis Rams") {
+      Game_Results$team_home[i] = "Los Angeles Rams"
+  } else if (Game_Results$team_home[i] == "San Diego Chargers") {
+      Game_Results$team_home[i] = "Los Angeles Chargers"
+  }
+  
+  if (Game_Results$team_away[i] == "St. Louis Rams") {
+      Game_Results$team_away[i] = "Los Angeles Rams"
+  } else if (Game_Results$team_away[i] == "San Diego Chargers") {
+      Game_Results$team_away[i] = "Los Angeles Chargers"
+  }
+}
+
+
+#unique(Game_Results$team_away)
+#unique(Game_Results$team_home)
+# now only 32 team names in both home and away - 32 franchises
+ # unique(Game_Results$team_favorite_id)
+```
+
+```{r}
+# get abbreviations for home and away teams from nfl_teams and assign them to new columns in Game_Results
+Game_Results$team_home_abb = NA
+Game_Results$team_away_abb = NA
+
+for (i in 1:dim(Game_Results)[1]) {
+    home.index = which(nfl_teams$team_name == Game_Results$team_home[i])
+    Game_Results$team_home_abb[i] = nfl_teams$team_id[home.index]
+    
+    away.index = which(nfl_teams$team_name == Game_Results$team_away[i])
+    Game_Results$team_away_abb[i] = nfl_teams$team_id[away.index]
+}
+
+
+
+
+# recompute vegas line in terms of home team
+```
+
+```{r}
+# compute spread and total variable
+Game_Results$Spread = Game_Results$score_home - Game_Results$score_away
+
+Game_Results$Total = Game_Results$score_home + Game_Results$score_away
+
+Game_Results$Result = 0
+Game_Results$Result[Game_Results$score_home > Game_Results$score_away] = 1
+
+# right now, ties are being treated as 0 in result column
+```
+
+```{r}
+# recompute vegas line in terms of home team
+for (i in 1:dim(Game_Results)[1]) {
+  if (Game_Results$team_favorite_id[i] == Game_Results$team_home_abb[i]) {
+    Game_Results$Vegas_Pred_Spread[i] = Game_Results$spread_favorite[i] * -1
+  } else {
+    Game_Results$Vegas_Pred_Spread[i] = Game_Results$spread_favorite[i]
+  }
+}
+
+
+# summarize(is.na(Game_Results$Vegas_Pred_Spread))
+```
+
+```{r}
+# write.csv(Game_Results,"GameResultsCLEANED.csv")
+```
+
+
+
+# Next Cleaning
+
+```{r}
+GameResults <- read_csv("/Users/timlynch/Desktop/STOR538/Playoff 2 Respository/GameResultsCLEANED.csv")
+
+TeamStats <- read_csv("/Users/timlynch/Desktop/STOR538/Playoff 2 Respository/TeamStats.csv")
+```
+
+```{r}
+head(TeamStats)
+```
+
+
+```{r}
+for (i in 1:dim(TeamStats)[1]) {
+  if (TeamStats$Team[i] == "St. Louis Rams") {
+      TeamStats$Team[i] = "Los Angeles Rams"
+  } else if (TeamStats$Team[i] == "San Diego Chargers") {
+     TeamStats$Team[i] = "Los Angeles Chargers"
+  }
+}
+```
+
+```{r}
+TeamStatsFilter <- TeamStats %>%
+  select(-Off_Plays, -Off_Passing_Att, -Off_Rushing_Att)
+
+
+TeamStatsHome <- TeamStatsFilter %>%
+  rename_at(vars(-Team, -Year), paste0, "_home")
+
+
+TeamStatsAway <- TeamStatsFilter %>%
+  rename_at(vars(-Team, -Year), paste0, "_away")
+
+GameResults <- GameResults %>%
+  rename(Year = schedule_season)
+
+GameResults <- GameResults %>%
+  select(-X1)
+
+TeamStatsHome <- TeamStatsHome %>%
+  rename(team_home = Team)
+
+TeamStatsAway <- TeamStatsAway %>%
+  rename(team_away = Team)
+
+
+```
+
+
+```{r}
+testjoin <- left_join(GameResults,TeamStatsHome, by = c("team_home", "Year"))
+
+GameResultsWithStats <- left_join(testjoin, TeamStatsAway, by = c("team_away", "Year"))
+```
+
+```{r}
+str(GameResultsWithStats)
+```
+
+```{r}
+write.csv(GameResultsWithStats, "GameResultsWithStats.csv")
+```
+
+# Data Cleaning Part II
+
+```{r}
+GameResults <- read_csv("GameResultsWithStats.csv")
+```
+
+```{r}
+GameResults <- GameResults[,-c(1:2,5, 7:8,10:11,13,16:17)]
+```
+
+```{r}
+# now offensive stats for home team start at column 15
+
+str(GameResults)
+
+GameResults <- GameResults %>%
+  select(-Def_Plays_home, -Def_Passing_Att_home, -Def_Rushing_Att_home,
+         -Def_Plays_away, -Def_Passing_Att_away, -Def_Rushing_Att_away)
+
+GameResults <- GameResults %>%
+  mutate(
+    Off_Total_Points_home = Off_Total_Points_home / 16,
+    Off_Total_Yards_home = Off_Total_Yards_home / 16,
+    Off_Turnovers_home = Off_Turnovers_home / 16, 
+    Off_Fumbles_home = Off_Fumbles_home / 16,
+    Off_Total1stD_home = Off_Total1stD_home / 16,
+    Off_Completions_home = Off_Completions_home / 16,
+    Off_Passing_Yds_home = Off_Passing_Yds_home / 16,
+    Off_Passing_TD_home = Off_Passing_TD_home / 16,
+    Off_Int_home = Off_Int_home / 16,
+    Off_Passing_1stD_home = Off_Passing_1stD_home / 16,
+    Off_Rushing_Yds_home = Off_Rushing_Yds_home / 16,
+    Off_Rushing_TD_home = Off_Rushing_TD_home / 16,
+    Off_Rushing_1stD_home = Off_Rushing_1stD_home / 16, 
+    Off_Penalties_home = Off_Penalties_home / 16,        
+    Off_Penalty_Yds_home = Off_Penalty_Yds_home / 16,     
+    Off_1st_Downs_by_Pen_home = Off_1st_Downs_by_Pen_home / 16, 
+    Def_Total_Points_home = Def_Total_Points_home / 16,
+    Def_Total_Yards_home = Def_Total_Yards_home / 16,
+    Def_Turnovers_home = Def_Turnovers_home / 16, 
+    Def_Fumbles_home = Def_Fumbles_home / 16,
+    Def_Total1stD_home = Def_Total1stD_home / 16,
+    Def_Completions_home = Def_Completions_home / 16,
+    Def_Passing_Yds_home = Def_Passing_Yds_home / 16,
+    Def_Passing_TD_home = Def_Passing_TD_home / 16,
+    Def_Int_home = Def_Int_home / 16,
+    Def_Passing_1stD_home = Def_Passing_1stD_home / 16,
+    Def_Rushing_Yds_home = Def_Rushing_Yds_home / 16,
+    Def_Rushing_TD_home = Def_Rushing_TD_home / 16,
+    Def_Rushing_1stD_home = Def_Rushing_1stD_home / 16, 
+    Def_Penalties_home = Def_Penalties_home / 16,        
+    Def_Penalty_Yds_home = Def_Penalty_Yds_home / 16,     
+    Def_1st_Downs_by_Pen_home = Def_1st_Downs_by_Pen_home / 16,
+    Off_Total_Points_away = Off_Total_Points_away / 16,
+    Off_Total_Yards_away = Off_Total_Yards_away / 16,
+    Off_Turnovers_away = Off_Turnovers_away / 16, 
+    Off_Fumbles_away = Off_Fumbles_away / 16,
+    Off_Total1stD_away = Off_Total1stD_away / 16,
+    Off_Completions_away = Off_Completions_away / 16,
+    Off_Passing_Yds_away = Off_Passing_Yds_away / 16,
+    Off_Passing_TD_away = Off_Passing_TD_away / 16,
+    Off_Int_away = Off_Int_away / 16,
+    Off_Passing_1stD_away = Off_Passing_1stD_away / 16,
+    Off_Rushing_Yds_away = Off_Rushing_Yds_away / 16,
+    Off_Rushing_TD_away = Off_Rushing_TD_away / 16,
+    Off_Rushing_1stD_away = Off_Rushing_1stD_away / 16, 
+    Off_Penalties_away = Off_Penalties_away / 16,        
+    Off_Penalty_Yds_away = Off_Penalty_Yds_away / 16,     
+    Off_1st_Downs_by_Pen_away = Off_1st_Downs_by_Pen_away / 16, 
+    Def_Total_Points_away = Def_Total_Points_away / 16,
+    Def_Total_Yards_away = Def_Total_Yards_away / 16,
+    Def_Turnovers_away = Def_Turnovers_away / 16, 
+    Def_Fumbles_away = Def_Fumbles_away / 16,
+    Def_Total1stD_away = Def_Total1stD_away / 16,
+    Def_Completions_away = Def_Completions_away / 16,
+    Def_Passing_Yds_away = Def_Passing_Yds_away / 16,
+    Def_Passing_TD_away = Def_Passing_TD_away / 16,
+    Def_Int_away = Def_Int_away / 16,
+    Def_Passing_1stD_away = Def_Passing_1stD_away / 16,
+    Def_Rushing_Yds_away = Def_Rushing_Yds_away / 16,
+    Def_Rushing_TD_away = Def_Rushing_TD_away / 16,
+    Def_Rushing_1stD_away = Def_Rushing_1stD_away / 16, 
+    Def_Penalties_away = Def_Penalties_away / 16,        
+    Def_Penalty_Yds_away = Def_Penalty_Yds_away / 16,     
+    Def_1st_Downs_by_Pen_away = Def_1st_Downs_by_Pen_away / 16
+    
+  )
+
+# now all variables should be on per game basis 
+```
+
+```{r}
+unique(GameResults$weather_detail)
+```
+
+
+```{r}
+GameResults$Dome = FALSE
+for (i in 1:5324) {
+  if (!is.na(GameResults$weather_detail[i]) & GameResults$weather_detail[i] == "DOME") {
+    GameResults$Dome[i] = TRUE
+  }
+}
+```
+
+
+```{r}
+library(readxl)
+
+Conversions <- read_excel("Conversion Values.xlsx")
+
+Conversions <- Conversions %>%
+  select(-1)
+
+for (i in 1:dim(Conversions)[1]) {
+  if (Conversions$Tm[i] == "St. Louis Rams") {
+      Conversions$Tm[i] = "Los Angeles Rams"
+  } else if (Conversions$Tm[i] == "San Diego Chargers") {
+     Conversions$Tm[i] = "Los Angeles Chargers"
+  }
+}
+
+ConversionsHome <- Conversions %>%
+  rename(team_home = Tm,
+         `3D%_home` = `3D%`,
+         RZPct_home = RZPct)
+ConversionsAway <- Conversions %>%
+  rename(team_away = Tm,
+         `3D%_away` = `3D%`,
+         RZPct_away = RZPct)
+
+
+testjoin <- left_join(GameResults,ConversionsHome, by = c("team_home", "Year"))
+
+UPDATEDGameResultsWithStats <- left_join(testjoin, ConversionsAway, by = c("team_away", "Year"))
+
+```
+
+
+```{r}
+head(GameResults)
+
+UPDATEDGameResultsWithStats$TurnoverRatio_home <- (GameResults$Off_Int_home * 16 + GameResults$Off_Fumbles_home * 16) / (GameResults$Def_Fumbles_home * 16 + GameResults$Def_Int_home * 16)
+
+UPDATEDGameResultsWithStats$TurnoverRatio_away <- (GameResults$Off_Int_away * 16 + GameResults$Off_Fumbles_away * 16) / (GameResults$Def_Fumbles_away * 16 + GameResults$Def_Int_away * 16)
+
+# turnover ratio: turnovers while on offense / turnovers while on defense
+```
+
+
+```{r}
+
+UPDATEDGameResultsWithStats <- UPDATEDGameResultsWithStats %>%
+  select(-weather_detail)
+write.csv(UPDATEDGameResultsWithStats, "UPDATEDGameResultsWithStats.csv")
+```

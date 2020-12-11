@@ -1,0 +1,829 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(readr)
+library(tidyverse)
+```
+
+```{r}
+GameResults <- read_csv("newestData.csv")
+```
+
+
+# Developing a model for Spread
+
+
+```{r}
+head(GameResults)
+```
+
+```{r}
+GameResults %>% group_by(Year) %>%
+  summarize(mean(Spread))
+```
+
+```{r}
+SpreadMatrix <- GameResults %>%
+  dplyr::select(-c(2:4,10:11,113:114,116:125,127:128,130:139)) %>%
+  dplyr::select(Spread, everything())
+```
+
+```{r}
+hist(SpreadMatrix$Spread)
+
+# spread fairly normally distributed
+```
+
+```{r}
+library(leaps)
+set.seed(123)
+train <- sample.int(5324, size=2000)
+SpreadMatrix.train <- SpreadMatrix[train,]
+SpreadMatrix.test <- SpreadMatrix[-train,]
+
+#regfit.best=regsubsets(Spread~.,data=SpreadMatrix.train, nvmax =19)
+#test.mat=model.matrix(Spread∼.,data=SpreadMatrix.test)
+
+
+```
+
+```{r}
+# Backward Elimination 
+#Full=lm(Spread~., data=SpreadMatrix.train)
+#summary(Full)
+#MSE=(summary(Full)$sigma)^2
+#step(Full, scale=MSE, trace=0)
+```
+
+
+lm(formula = Spread ~ stadium_neutral + Vegas_Pred_Spread + Off_Total_Points_home + 
+    Off_Total_Yards_home + Off_Yards_Per_Attempt_home + Off_Total1stD_home + 
+    Off_Passing_Yds_home + `Off_Passing Y/A_home` + Off_Rushing_TD_home + 
+    Off_Penalties_home + Off_Expected_Points_home + Def_Total_Points_home + 
+    Def_Turnovers_home + `Def_TO%_home` + Def_Expected_Points_home + 
+    Off_Yards_Per_Attempt_away + Off_Turnovers_away + Off_Passing_Yds_away + 
+    Off_Passing_TD_away + `Off_Passing Y/A_away` + Off_Passing_1stD_away + 
+    `Off_Rushing Y/A_away` + `Off_Sc%_away` + `Off_TO%_away` + 
+    Def_Total_Points_away + Def_Turnovers_away + Def_Passing_TD_away + 
+    Def_Rushing_TD_away + `Def_TO%_away` + RZPct_home + `3D%_away` + 
+    RZPct_away + PB_Rank_home, data = SpreadMatrix.train)
+    
+
+```{r}
+# single backward elimination on training data
+BE.1 <- lm(formula = Spread ~ stadium_neutral + Vegas_Pred_Spread + Off_Total_Points_home + 
+    Off_Total_Yards_home + Off_Yards_Per_Attempt_home + Off_Total1stD_home + 
+    Off_Passing_Yds_home + `Off_Passing Y/A_home` + Off_Rushing_TD_home + 
+    Off_Penalties_home + Off_Expected_Points_home + Def_Total_Points_home + 
+    Def_Turnovers_home + `Def_TO%_home` + Def_Expected_Points_home + 
+    Off_Yards_Per_Attempt_away + Off_Turnovers_away + Off_Passing_Yds_away + 
+    Off_Passing_TD_away + `Off_Passing Y/A_away` + Off_Passing_1stD_away + 
+    `Off_Rushing Y/A_away` + `Off_Sc%_away` + `Off_TO%_away` + 
+    Def_Total_Points_away + Def_Turnovers_away + Def_Passing_TD_away + 
+    Def_Rushing_TD_away + `Def_TO%_away` + RZPct_home + `3D%_away` + 
+    RZPct_away + PB_Rank_home, data = SpreadMatrix.train)
+
+
+pred <- (SpreadMatrix.test$Spread - predict(BE.1, newdata=SpreadMatrix.test))^2
+
+sqrt(mean(pred))
+```
+
+
+# Backward Selection Attempt I
+
+```{r}
+library(MASS)
+library(caret)
+
+# just trying to fit on all 
+
+# Set seed for reproducibility
+set.seed(123)
+# Set up repeated k-fold cross-validation
+train.control <- trainControl(method = "cv", number = 10)
+# Train the model
+step.model <- train(Spread ~., data = SpreadMatrix,
+                    method = "leapBackward", 
+                    tuneGrid = data.frame(nvmax = 1:80),
+                    trControl = train.control
+                    )
+step.model$results
+```
+
+```{r}
+which.min(step.model$results$RMSE)
+min(step.model$results$RMSE)
+```
+
+```{r}
+plot(step.model$results$RMSE)
+```
+
+
+```{r}
+library(plm)
+
+
+
+SpreadMatrix.1 <- SpreadMatrix %>%
+  dplyr::select(-c(5:6))
+
+detect.lindep(SpreadMatrix.1)
+```
+
+
+```{r}
+sort(abs(cor(SpreadMatrix.1)[,1]), decreasing=TRUE)
+
+# Vegas_Pred_Spread, Off_Rank_home, Off_Total_Points_home, Off_Sc%_home, Off_Passing Y/A_home, Def_Rank_home, Def_Total_Points_home, Def_Sc%_home, Def_Passing_Y/A_home, TurnoverRatio_home, 3D%_home, Off_Passing_TD_home, Off_Rushing_TD_home, Off_Turnovers_home, Def_Passing_TD_home, Def_Rushing_TD_home, Def_Turnovers_home, Off_Total_1st_home,Off_Expected_Points_home, Off_Total_Yards_home, Def_Total_Yards_home, RB_Rank_home 
+```
+
+# Backward Selection Attempt II
+
+```{r}
+SpreadMatrix.2 <- SpreadMatrix.1 %>%
+  dplyr::select(-c(8, 10, 11, 12, 14, 16, 18, 19, 22, 25, 31, 33, 34, 35, 37, 39, 41, 42, 45, 48, 54, 56, 57, 58, 60, 62, 64, 65, 68, 71, 77, 79, 80, 81, 83, 85, 87, 88, 91, 94))
+
+# removing all linear dependencies and fitting 
+
+set.seed(123)
+# Set up repeated k-fold cross-validation
+train.control <- trainControl(method = "cv", number = 10)
+# Train the model
+step.model.2 <- train(Spread ~., data = SpreadMatrix.2,
+                    method = "leapBackward", 
+                    tuneGrid = data.frame(nvmax = 1:50),
+                    trControl = train.control
+                    )
+step.model.2$results
+
+```
+
+```{r}
+which.min(step.model.2$results$RMSE)
+min(step.model.2$results$RMSE)
+```
+
+```{r}
+plot(step.model.2$results$RMSE)
+```
+
+```{r}
+coef(step.model.2$finalModel, id=6)
+```
+
+
+
+# Backward Selection Attempt III
+including some of the variables that were deemed suspicious by linear dependence function 
+
+```{r}
+SpreadMatrix.3 <- SpreadMatrix.1 %>%
+  dplyr::select(-Off_Rushing_Yds_home, -Off_Passing_Yds_home,-Def_Total_Yards_home,-Off_Int_home, -Off_Fumbles_home, -Def_Int_home, -Def_Fumbles_home, -Off_Total1stD_home, - Def_Total1stD_home, -Off_Rushing_Yds_away, -Off_Passing_Yds_away,-Def_Total_Yards_away,-Off_Int_away, -Off_Fumbles_away, -Def_Int_away, -Def_Fumbles_away, -Off_Total1stD_away, - Def_Total1stD_away)
+
+
+set.seed(123)
+# Set up repeated k-fold cross-validation
+train.control <- trainControl(method = "cv", number = 10)
+# Train the model
+step.model.3 <- train(Spread ~., data = SpreadMatrix.3,
+                    method = "leapBackward", 
+                    tuneGrid = data.frame(nvmax = 1:90),
+                    trControl = train.control
+                    )
+step.model.3$results
+```
+
+```{r}
+which.min(step.model.3$results$RMSE)
+min(step.model.3$results$RMSE)
+
+#12.09638 + 2*0.2709257
+```
+
+```{r}
+plot(step.model.3$results$RMSE)
+```
+
+```{r}
+coef(step.model.3$finalModel, id=6)
+```
+
+# Creating lm model based off best Backward Selection Model
+
+```{r}
+games2020 <- read_csv("Total2020.csv")
+#head(games2020)
+
+games2020.1 <- games2020[1:13,] %>%
+  dplyr::select(team_home, team_away, Spread,Off_Total_Points_home, Def_Total_Points_home, Def_Expected_Points_home, Off_Total_Points_away, Def_Total_Points_away)
+
+
+games2020.1 <- games2020.1[-9,]
+
+
+games2020.1
+```
+
+```{r}
+games2020.1$Vegas_Pred_Spread = c(3.5,-6,2.5,-3,6.5,19.5,-4,3.5,-4,3,7.5,-10.5)
+```
+
+```{r}
+#predict(step.model.3$method, newdata = games2020.1)
+
+lmtest <- lm(Spread~Off_Total_Points_home+Def_Total_Points_home+Def_Expected_Points_home+Off_Total_Points_away+ Def_Total_Points_away+Vegas_Pred_Spread, data=SpreadMatrix)
+
+games2020.1$Spread <- predict(lmtest, newdata=games2020.1)
+
+summary(lmtest)
+
+games2020.2 <- games2020.1[,1:3]
+```
+
+```{r}
+SpreadMatrix.5 <- SpreadMatrix %>%
+  dplyr::select(Spread,Off_Total_Points_home,Def_Total_Points_home,Def_Expected_Points_home,Off_Total_Points_away, Def_Total_Points_away,Vegas_Pred_Spread)
+
+set.seed(123)
+# Set up repeated k-fold cross-validation
+train.control <- trainControl(method = "cv", number = 10)
+# Train the model
+step.model.3.1 <- train(Spread ~.*., data = SpreadMatrix.5,
+                    method = "leapBackward", 
+                    tuneGrid = data.frame(nvmax = 1:20),
+                    trControl = train.control
+                    )
+step.model.3.1$results
+```
+
+```{r}
+which.min(step.model.3.1$results$RMSE)
+min(step.model.3.1$results$RMSE)
+
+#12.10237 + 2*0.2434441
+```
+
+```{r}
+coef(step.model.3.1$finalModel, id=10)
+
+
+
+```
+
+```{r}
+lmtest2 <- lm(Spread~Def_Total_Points_home + Def_Expected_Points_home + Vegas_Pred_Spread + Off_Total_Points_home*Def_Total_Points_away + Def_Total_Points_home*Off_Total_Points_away + Def_Total_Points_home*Def_Total_Points_away + Def_Total_Points_home*Vegas_Pred_Spread +
+Def_Expected_Points_home*Def_Total_Points_away + Off_Total_Points_away*Def_Total_Points_away + Def_Total_Points_away*Vegas_Pred_Spread, data=SpreadMatrix) 
+
+games2020.1 <- games2020[1:13,] %>%
+  dplyr::select(team_home, team_away, Spread,Off_Total_Points_home, Def_Total_Points_home, Def_Expected_Points_home, Off_Total_Points_away, Def_Total_Points_away)
+
+
+games2020.1 <- games2020.1[-9,]
+
+
+games2020.1
+
+games2020.1$Vegas_Pred_Spread = c(3.5,-6,2.5,-3,6.5,19.5,-4,3.5,-4,3,7.5,-10.5)
+
+#summary(lmtest2)
+
+# look into adding interaction between each offense and defense and revalidating 
+                      
+```
+
+
+# Retrying Best Model With Addition of Important Interaction Effects
+
+```{r}
+SpreadMatrix.removed <- SpreadMatrix[SpreadMatrix$Spread < 45 & SpreadMatrix$Spread > -45,]
+
+set.seed(123) 
+train.control <- trainControl(method = "cv", number = 10)
+# Train the model
+model <- train(Spread~Off_Total_Points_home+Def_Total_Points_home+Def_Expected_Points_home+Off_Total_Points_away+ Def_Total_Points_away+Vegas_Pred_Spread+Off_Total_Points_home*Def_Total_Points_away+Off_Total_Points_away*Def_Total_Points_home, data = SpreadMatrix.removed, method = "lm",
+               trControl = train.control)
+# Summarize the results
+print(model)
+
+model$results
+```
+
+```{r}
+summary(model)
+```
+
+```{r}
+gamesFinalPredicts <- games2020.1[,1:3]
+gamesFinalPredicts$Spread <- predict(model, newdata=games2020.1)
+```
+
+
+# Trying with different variables and interaction terms
+
+```{r}
+set.seed(123) 
+train.control <- trainControl(method = "cv", number = 10)
+# Train the model
+model.1 <- train(Spread~Off_Total_Points_home+Def_Total_Points_home+Def_Expected_Points_home+Off_Total_Points_away+ Def_Total_Points_away+Vegas_Pred_Spread+Off_Total_Points_home*Def_Total_Points_away+Off_Total_Points_away*Def_Total_Points_home, data = SpreadMatrix, method = "lm",
+               trControl = train.control)
+# Summarize the results
+print(model.1)
+
+model.1$results
+```
+
+```{r}
+SpreadMatrix$Spread.hat1 = predict(model, newdata=SpreadMatrix)
+ggplot(SpreadMatrix) +
+  geom_point(aes(x=Spread,y=Spread.hat1),color="lightskyblue2") +
+  geom_abline(a=0,b=1,linetype="dashed") +
+  theme_minimal() +
+  ylab("Predicted Spread") +
+  xlab("Actual Spread") +
+  ggtitle("Predicted Spread v. Actual Spread for Backwards Elimination Model")
+
+
+ggplot(SpreadMatrix) +
+  geom_histogram(aes(x=Spread-Spread.hat1),fill="lightskyblue2") +
+  theme_minimal() +
+  xlab("Residuals") +
+  ylab("Frequency")
+```
+
+
+# Forward Selection Attempt I
+
+```{r}
+# Set seed for reproducibility
+set.seed(123)
+# Set up repeated k-fold cross-validation
+train.control <- trainControl(method = "cv", number = 10)
+# Train the model
+step.model.4 <- train(Spread ~., data = SpreadMatrix,
+                    method = "leapForward", 
+                    tuneGrid = data.frame(nvmax = 1:80),
+                    trControl = train.control
+                    )
+step.model.4$results
+```
+
+```{r}
+which.min(step.model.4$results$RMSE)
+min(step.model.4$results$RMSE)
+```
+
+# Forward Selection Attempt II
+
+```{r}
+set.seed(123)
+# Set up repeated k-fold cross-validation
+train.control <- trainControl(method = "cv", number = 10)
+# Train the model
+step.model.5 <- train(Spread ~., data = SpreadMatrix.2,
+                    method = "leapForward", 
+                    tuneGrid = data.frame(nvmax = 1:50),
+                    trControl = train.control
+                    )
+step.model.5$results
+```
+
+```{r}
+which.min(step.model.5$results$RMSE)
+min(step.model.5$results$RMSE)
+```
+
+
+
+
+
+
+
+
+# Forward Selection Attempt III
+
+```{r}
+set.seed(123)
+# Set up repeated k-fold cross-validation
+train.control <- trainControl(method = "cv", number = 10)
+# Train the model
+step.model.6 <- train(Spread ~., data = SpreadMatrix.3,
+                    method = "leapForward", 
+                    tuneGrid = data.frame(nvmax = 1:90),
+                    trControl = train.control
+                    )
+step.model.6$results
+```
+
+```{r}
+which.min(step.model.6$results$RMSE)
+min(step.model.6$results$RMSE)
+```
+
+- backward selection outperformed forward selection 
+
+
+# Stepwise Regression I
+
+```{r}
+set.seed(123)
+# Set up repeated k-fold cross-validation
+train.control <- trainControl(method = "cv", number = 10)
+# Train the model
+step.model.7 <- train(Spread ~., data = SpreadMatrix.2,
+                    method = "leapSeq", 
+                    tuneGrid = data.frame(nvmax = 1:50),
+                    trControl = train.control
+                    )
+step.model.7$results
+```
+
+```{r}
+which.min(step.model.7$results$RMSE)
+min(step.model.7$results$RMSE)
+```
+
+slightly bigger than Backward Regression III, but smaller standard deviation
+
+```{r}
+coef(step.model.7$finalModel, id=6)
+```
+
+
+# Stepwise Regression II
+
+```{r}
+set.seed(123)
+# Set up repeated k-fold cross-validation
+train.control <- trainControl(method = "cv", number = 10)
+# Train the model
+step.model.8 <- train(Spread ~., data = SpreadMatrix.3,
+                    method = "leapSeq", 
+                    tuneGrid = data.frame(nvmax = 1:90),
+                    trControl = train.control
+                    )
+step.model.8$results
+```
+
+```{r}
+which.min(step.model.8$results$RMSE)
+min(step.model.8$results$RMSE)
+```
+
+# Stepwise Regression w/o Vegas_Pred_Spread
+
+```{r}
+SpreadMatrix.6 <- SpreadMatrix.3 %>%
+  dplyr::select(-Vegas_Pred_Spread)
+
+
+set.seed(123)
+# Set up repeated k-fold cross-validation
+train.control <- trainControl(method = "cv", number = 10)
+# Train the model
+step.model.9 <- train(Spread ~., data = SpreadMatrix.6,
+                    method = "leapSeq", 
+                    tuneGrid = data.frame(nvmax = 1:89),
+                    trControl = train.control
+                    )
+step.model.9$results
+```
+
+```{r}
+which.min(step.model.9$results$RMSE)
+min(step.model.9$results$RMSE)
+```
+
+```{r}
+coef(step.model.9$finalModel, id=4)
+```
+
+```{r}
+lmtest3 <- lm(Spread~Off_Total_Points_home+Def_Total_Points_home+Def_Total_Points_away+Off_Total_Points_away, data=SpreadMatrix)
+summary(lmtest3)
+```
+
+
+# Improving on This StepWise Model
+
+```{r}
+set.seed(123) 
+train.control <- trainControl(method = "cv", number = 10)
+# Train the model
+model.2 <- train(Spread~Off_Total_Points_home+Def_Total_Points_home+ Off_Total_Points_away+ Def_Total_Points_away+Off_Total_Points_home*Def_Total_Points_away+Off_Total_Points_away*Def_Total_Points_home, data = SpreadMatrix, method = "lm",
+               trControl = train.control)
+# Summarize the results
+print(model.2)
+
+model.2$results
+```
+
+```{r}
+summary(model.2)
+```
+
+
+
+# Regularized Models I
+
+```{r}
+# SpreadMatrix.1 - all possible predictors & other value 
+library(modelr)
+
+SpreadMatrix.1 <- SpreadMatrix.1 %>%
+  dplyr::select(-Spread.hat)
+
+y = SpreadMatrix.1$Spread
+X=model_matrix(SpreadMatrix.1,Spread~.)[,-1]
+var.names=names(X)
+dim(X)
+```
+
+```{r}
+library(glmnet)
+set.seed(216)
+cvmod.0=cv.glmnet(y=y,x=as.matrix(X),type.measure = "mse",alpha=0)
+set.seed(216)
+cvmod.25=cv.glmnet(y=y,x=as.matrix(X), type.measure = "mse",alpha=0.25)
+set.seed(216)
+cvmod.5=cv.glmnet(y=y,x=as.matrix(X), type.measure = "mse",alpha=0.5)
+set.seed(216)
+cvmod.75=cv.glmnet(y=y,x=as.matrix(X), type.measure = "mse",alpha=0.75)
+set.seed(216)
+cvmod.1=cv.glmnet(y=y,x=as.matrix(X), type.measure = "mse",alpha=1)
+
+CV.0.ERROR=cvmod.0$cvm[which(cvmod.0$lambda==cvmod.0$lambda.1se)]
+CV.25.ERROR=cvmod.25$cvm[which(cvmod.25$lambda==cvmod.25$lambda.1se)]
+CV.5.ERROR=cvmod.5$cvm[which(cvmod.5$lambda==cvmod.5$lambda.1se)]
+CV.75.ERROR=cvmod.75$cvm[which(cvmod.75$lambda==cvmod.75$lambda.1se)]
+CV.1.ERROR=cvmod.1$cvm[which(cvmod.1$lambda==cvmod.1$lambda.1se)]
+
+MOD.RESULT=tibble(alpha=c(0,0.25,0.5,0.75,1),
+                  lambda=c(cvmod.0$lambda.1se,cvmod.25$lambda.1se,
+                           cvmod.5$lambda.1se,cvmod.75$lambda.1se,
+                           cvmod.1$lambda.1se),
+                  CV.Error=c(CV.0.ERROR,CV.25.ERROR,CV.5.ERROR,
+                             CV.75.ERROR,CV.1.ERROR))
+print(MOD.RESULT)
+```
+
+```{r}
+best.alpha=MOD.RESULT$alpha[which.min(MOD.RESULT$CV.Error)]
+best.lambda=MOD.RESULT$lambda[which.min(MOD.RESULT$CV.Error)]
+
+best.mod=glmnet(y=y,x=as.matrix(X),nlambda=1,lambda=best.lambda,alpha=best.alpha)
+best.coef=as.tibble(as.matrix(coef(best.mod)))
+best.coef2=best.coef %>% 
+              mutate(Parameter=c("Int",var.names)) %>%
+              rename(Estimate=s0) %>%
+              dplyr::select(Parameter,Estimate)
+nonzero.best.coef=best.coef2 %>%
+                    filter(Estimate!=0)
+print(nonzero.best.coef,n=1e3)
+
+SpreadMatrix.1$Spread.hat=predict(best.mod,newx=as.matrix(X))
+
+ggplot(SpreadMatrix.1) +
+  geom_point(aes(x=Spread,y=Spread.hat),color="lightskyblue2") +
+  geom_abline(a=0,b=1,linetype="dashed") +
+  theme_minimal() +
+  ylab("Predicted Spread") +
+  xlab("Actual Spread")
+
+ggplot(SpreadMatrix.1) +
+  geom_histogram(aes(x=Spread-Spread.hat),fill="lightskyblue2") +
+  theme_minimal() +
+  xlab("Residuals") +
+  ylab("Frequency")
+```
+
+```{r}
+sqrt(min(MOD.RESULT$CV.Error))
+```
+
+
+Summary of Best Models So Far:
+1. Backward Selection III
+2. Backward Selection II
+3. Stepwise Selection I
+4. GLM Net with whole data
+
+# Regularized Models II
+
+```{r}
+# using SpreadMatrix.3
+SpreadMatrix.2 <- SpreadMatrix.2 %>%
+  dplyr::select(-Spread.hat)
+
+y = SpreadMatrix.2$Spread
+X=model_matrix(SpreadMatrix.2,Spread~.)[,-1]
+var.names=names(X)
+dim(X)
+```
+
+```{r}
+set.seed(216)
+cvmod.0=cv.glmnet(y=y,x=as.matrix(X),type.measure = "mse",alpha=0)
+set.seed(216)
+cvmod.25=cv.glmnet(y=y,x=as.matrix(X), type.measure = "mse",alpha=0.25)
+set.seed(216)
+cvmod.5=cv.glmnet(y=y,x=as.matrix(X), type.measure = "mse",alpha=0.5)
+set.seed(216)
+cvmod.75=cv.glmnet(y=y,x=as.matrix(X), type.measure = "mse",alpha=0.75)
+set.seed(216)
+cvmod.1=cv.glmnet(y=y,x=as.matrix(X), type.measure = "mse",alpha=1)
+
+CV.0.ERROR=cvmod.0$cvm[which(cvmod.0$lambda==cvmod.0$lambda.1se)]
+CV.25.ERROR=cvmod.25$cvm[which(cvmod.25$lambda==cvmod.25$lambda.1se)]
+CV.5.ERROR=cvmod.5$cvm[which(cvmod.5$lambda==cvmod.5$lambda.1se)]
+CV.75.ERROR=cvmod.75$cvm[which(cvmod.75$lambda==cvmod.75$lambda.1se)]
+CV.1.ERROR=cvmod.1$cvm[which(cvmod.1$lambda==cvmod.1$lambda.1se)]
+
+MOD.RESULT=tibble(alpha=c(0,0.25,0.5,0.75,1),
+                  lambda=c(cvmod.0$lambda.1se,cvmod.25$lambda.1se,
+                           cvmod.5$lambda.1se,cvmod.75$lambda.1se,
+                           cvmod.1$lambda.1se),
+                  CV.Error=c(CV.0.ERROR,CV.25.ERROR,CV.5.ERROR,
+                             CV.75.ERROR,CV.1.ERROR))
+print(MOD.RESULT)
+```
+
+
+```{r}
+best.alpha=MOD.RESULT$alpha[which.min(MOD.RESULT$CV.Error)]
+best.lambda=MOD.RESULT$lambda[which.min(MOD.RESULT$CV.Error)]
+
+best.mod=glmnet(y=y,x=as.matrix(X),nlambda=1,lambda=best.lambda,alpha=best.alpha)
+best.coef=as.tibble(as.matrix(coef(best.mod)))
+best.coef2=best.coef %>% 
+              mutate(Parameter=c("Int",var.names)) %>%
+              rename(Estimate=s0) %>%
+              dplyr::select(Parameter,Estimate)
+nonzero.best.coef=best.coef2 %>%
+                    filter(Estimate!=0)
+print(nonzero.best.coef,n=1e3)
+
+SpreadMatrix.2$Spread.hat=predict(best.mod,newx=as.matrix(X))
+
+ggplot(SpreadMatrix.2) +
+  geom_point(aes(x=Spread,y=Spread.hat),color="lightskyblue2") +
+  geom_abline(a=0,b=1,linetype="dashed") +
+  theme_minimal() +
+  ylab("Predicted Spread") +
+  xlab("Actual Spread")
+
+ggplot(SpreadMatrix.2) +
+  geom_histogram(aes(x=Spread-Spread.hat),fill="lightskyblue2") +
+  theme_minimal() +
+  xlab("Residuals") +
+  ylab("Frequency")
+```
+
+```{r}
+sqrt(min(MOD.RESULT$CV.Error))
+```
+
+# Regularized Models III
+
+```{r}
+SpreadMatrix.4 <- SpreadMatrix %>%
+  dplyr::select(Spread,Vegas_Pred_Spread, Off_Rank_home, Off_Total_Points_home, `Off_Sc%_home`, `Off_Passing Y/A_home`, Def_Rank_home, Def_Total_Points_home, `Def_Sc%_home`, `Def_Passing Y/A_home`, TurnoverRatio_home, `3D%_home`, Off_Passing_TD_home, Off_Rushing_TD_home, Off_Turnovers_home, Def_Passing_TD_home, Def_Rushing_TD_home, Def_Turnovers_home, Off_Total1stD_home,Off_Expected_Points_home, Off_Total_Yards_home, Def_Total_Yards_home, RB_Rank_home,Off_Rank_away, Off_Total_Points_away, `Off_Sc%_away`, `Off_Passing Y/A_away`, Def_Rank_away, Def_Total_Points_away, `Def_Sc%_away`, `Def_Passing Y/A_away`, TurnoverRatio_away, `3D%_away`, Off_Passing_TD_away, Off_Rushing_TD_away, Off_Turnovers_away, Def_Passing_TD_away, Def_Rushing_TD_away, Def_Turnovers_away, Off_Total1stD_away,Off_Expected_Points_away, Off_Total_Yards_away, Def_Total_Yards_away, RB_Rank_away) %>%
+  mutate(Off_Rank_diff = Off_Rank_home - Off_Rank_away,
+         Off_Total_Points_diff = Off_Total_Points_home - Off_Total_Points_away,
+         `Off_Sc%_diff` = `Off_Sc%_home` - `Off_Sc%_away`,
+         `Off_Passing Y/A_diff` = `Off_Passing Y/A_home` - `Off_Passing Y/A_away`,
+         Def_Rank_diff = Def_Rank_home - Def_Rank_away,
+         Def_Total_Points_diff = Def_Total_Points_home - Def_Total_Points_away,
+         `Def_Sc%_diff` = `Def_Sc%_home` - `Def_Sc%_away`,
+         `Def_Passing Y/A_diff` = `Def_Passing Y/A_home` - `Def_Passing Y/A_away`,
+         TurnoverRatio_diff = TurnoverRatio_home - TurnoverRatio_away,
+         `3D%_diff` = `3D%_home` - `3D%_away`,
+         Off_Passing_TD_diff = Off_Passing_TD_home - Off_Passing_TD_away,
+         Off_Rushing_TD_diff = Off_Rushing_TD_home - Off_Rushing_TD_away,
+         Off_Turnovers_diff = Off_Turnovers_home - Off_Turnovers_away,
+         Def_Passing_TD_diff = Def_Passing_TD_home - Def_Passing_TD_away,
+         Def_Rushing_TD_diff = Def_Rushing_TD_home - Def_Rushing_TD_away,
+         Def_Turnovers_diff = Def_Turnovers_home - Def_Turnovers_away,
+        Off_Total1stD_diff = Off_Total1stD_home - Off_Total1stD_away,
+        Off_Expected_Points_diff = Off_Expected_Points_home - Off_Expected_Points_away, 
+        Off_Total_Yards_diff = Off_Total_Yards_home - Off_Total_Yards_away, 
+        Def_Total_Yards_diff = Def_Total_Yards_home - Def_Total_Yards_away, 
+        RB_Rank_diff = RB_Rank_home - RB_Rank_away) %>%
+  dplyr::select(-c(Off_Rank_home, Off_Total_Points_home, `Off_Sc%_home`, `Off_Passing Y/A_home`, Def_Rank_home, Def_Total_Points_home, `Def_Sc%_home`, `Def_Passing Y/A_home`, TurnoverRatio_home, `3D%_home`, Off_Passing_TD_home, Off_Rushing_TD_home, Off_Turnovers_home, Def_Passing_TD_home, Def_Rushing_TD_home, Def_Turnovers_home, Off_Total1stD_home,Off_Expected_Points_home, Off_Total_Yards_home, Def_Total_Yards_home, RB_Rank_home,Off_Rank_away, Off_Total_Points_away, `Off_Sc%_away`, `Off_Passing Y/A_away`, Def_Rank_away, Def_Total_Points_away, `Def_Sc%_away`, `Def_Passing Y/A_away`, TurnoverRatio_away, `3D%_away`, Off_Passing_TD_away, Off_Rushing_TD_away, Off_Turnovers_away, Def_Passing_TD_away, Def_Rushing_TD_away, Def_Turnovers_away, Off_Total1stD_away,Off_Expected_Points_away, Off_Total_Yards_away, Def_Total_Yards_away, RB_Rank_away))
+
+
+y = SpreadMatrix.4$Spread
+X=model_matrix(SpreadMatrix.4,Spread~.*.)[,-1]
+var.names=names(X)
+dim(X)
+```
+
+```{r}
+
+set.seed(216)
+cvmod.0=cv.glmnet(y=y,x=as.matrix(X),type.measure = "mse",alpha=0)
+set.seed(216)
+cvmod.25=cv.glmnet(y=y,x=as.matrix(X), type.measure = "mse",alpha=0.25)
+set.seed(216)
+cvmod.5=cv.glmnet(y=y,x=as.matrix(X), type.measure = "mse",alpha=0.5)
+set.seed(216)
+cvmod.75=cv.glmnet(y=y,x=as.matrix(X), type.measure = "mse",alpha=0.75)
+set.seed(216)
+cvmod.90=cv.glmnet(y=y,x=as.matrix(X), type.measure = "mse",alpha=0.9)
+set.seed(216)
+cvmod.1=cv.glmnet(y=y,x=as.matrix(X), type.measure = "mse",alpha=1)
+
+
+CV.0.ERROR=cvmod.0$cvm[which(cvmod.0$lambda==cvmod.0$lambda.1se)]
+CV.25.ERROR=cvmod.25$cvm[which(cvmod.25$lambda==cvmod.25$lambda.1se)]
+CV.5.ERROR=cvmod.5$cvm[which(cvmod.5$lambda==cvmod.5$lambda.1se)]
+CV.75.ERROR=cvmod.75$cvm[which(cvmod.75$lambda==cvmod.75$lambda.1se)]
+CV.90.ERROR=cvmod.90$cvm[which(cvmod.90$lambda==cvmod.90$lambda.1se)]
+CV.1.ERROR=cvmod.1$cvm[which(cvmod.1$lambda==cvmod.1$lambda.1se)]
+
+MOD.RESULT=tibble(alpha=c(0,0.25,0.5,0.75,0.9,1),
+                  lambda=c(cvmod.0$lambda.1se,cvmod.25$lambda.1se,
+                           cvmod.5$lambda.1se,cvmod.75$lambda.1se,cvmod.90$lambda.1se,
+                           cvmod.1$lambda.1se),
+                  CV.Error=c(CV.0.ERROR,CV.25.ERROR,CV.5.ERROR,
+                             CV.75.ERROR,CV.90.ERROR,CV.1.ERROR))
+print(MOD.RESULT)
+```
+
+```{r}
+best.alpha=MOD.RESULT$alpha[which.min(MOD.RESULT$CV.Error)]
+best.lambda=MOD.RESULT$lambda[which.min(MOD.RESULT$CV.Error)]
+
+best.mod=glmnet(y=y,x=as.matrix(X),nlambda=1,lambda=best.lambda,alpha=best.alpha)
+best.coef=as.tibble(as.matrix(coef(best.mod)))
+best.coef2=best.coef %>% 
+              mutate(Parameter=c("Int",var.names)) %>%
+              rename(Estimate=s0) %>%
+              dplyr::select(Parameter,Estimate)
+nonzero.best.coef=best.coef2 %>%
+                    filter(Estimate!=0)
+print(nonzero.best.coef,n=1e3)
+
+SpreadMatrix.4$Spread.hat=predict(best.mod,newx=as.matrix(X))
+
+ggplot(SpreadMatrix.4) +
+  geom_point(aes(x=Spread,y=Spread.hat),color="lightskyblue2") +
+  geom_abline(a=0,b=1,linetype="dashed") +
+  theme_minimal() +
+  ylab("Predicted Spread") +
+  xlab("Actual Spread") +
+  ggtitle("Predicted Spread v. Actual Spread for Regularized Model")
+
+ggplot(SpreadMatrix.4) +
+  geom_histogram(aes(x=Spread-Spread.hat),fill="lightskyblue2") +
+  theme_minimal() +
+  xlab("Residuals") +
+  ylab("Frequency") + 
+  ggtitle("Predicted Spread v. Actual Spread for Regularized Model")
+```
+
+```{r}
+sqrt(min(MOD.RESULT$CV.Error))
+```
+
+```{r}
+nonzero.best.coef
+```
+
+# Final Predictions for Weeks 2-3
+
+```{r}
+games2020predictor <- games2020[14:40,] %>%
+  dplyr::select(Spread,team_home, team_away, Off_Rank_home,Off_Total_Points_home,`Off_Sc%_home`,Def_Total_Points_home, Off_Rank_away,Off_Total_Points_away,`Off_Sc%_away`,Def_Total_Points_away) %>%
+  mutate(Off_Rank_diff = Off_Rank_home - Off_Rank_away,
+         Off_Total_Points_diff = Off_Total_Points_home - Off_Total_Points_away,
+         `Off_Sc%_diff` = `Off_Sc%_home` - `Off_Sc%_away`,
+         Def_Total_Points_diff = Def_Total_Points_home - Def_Total_Points_away) %>%
+  dplyr::select(Spread, team_home, team_away,Off_Rank_diff,Off_Total_Points_diff,`Off_Sc%_diff`,Def_Total_Points_diff)
+
+
+
+for (i in 1:27) {
+  games2020predictor$Spread[i] = nonzero.best.coef[1,2] + nonzero.best.coef[2,2] * games2020predictor$Off_Rank_diff[i] + nonzero.best.coef[3,2] * games2020predictor$Off_Total_Points_diff[i] + nonzero.best.coef[4,2] * games2020predictor$`Off_Sc%_diff`[i] + nonzero.best.coef[5,2] * games2020predictor$Def_Total_Points_diff[i]
+}
+```
+
+
+```{r}
+#predict(best.mod,newx=newx)
+```
+
+
+
+In separate RMD file, also tried refitting model with additional DVOA variables, which seemed to improve performance of predictive models.
+
+
+
+
+
+
+
